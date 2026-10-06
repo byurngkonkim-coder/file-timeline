@@ -1,0 +1,16 @@
+ 
+[2026-06-09 10:14:28.21] ���� ����
+���: D:\백업\utility\FileTimeline2\
+
+--- Node.js Ȯ�� ---
+C:\Program Files\nodejs\node.exe
+v24.15.0
+
+--- node_modules Ȯ�� ---
+node_modules ����
+
+--- express Ȯ�� ---
+express OK
+
+--- server.js ���� ---
+[FileTimeline] 시작: http://127.0.0.1:47820

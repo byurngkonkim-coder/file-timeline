@@ -1,0 +1,21 @@
+{
+  "name": "file-timeline",
+  "version": "2.0.0",
+  "description": "PC 파일 타임라인 뷰어",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "build": "npx pkg server.js --targets node18-win-x64 --output FileTimeline.exe"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "iconv-lite": "^0.6.3"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
+  },
+  "pkg": {
+    "targets": ["node18-win-x64"],
+    "assets": []
+  }
+}
