@@ -231,6 +231,7 @@ button,input{font:inherit;color:inherit}
 <script>
 // ── 상태 변수 ─────────────────────────────────────────────────────────────
 var ALL         = [];
+var SINCE       = '';   // 누적 기록의 최초 접근 시각(ISO)
 var PC          = [];
 var mode        = 'recent';
 var period      = 'today';
@@ -404,6 +405,12 @@ function render() {
   var sumHtml = '<div class="ph"><h1>'+title+'</h1><span class="cnt">'+cnt+'</span>'
     + (chips?'<div class="chips">'+chips+'</div>':'')+'</div>';
 
+  // 조회 시작일이 누적 기록의 최초일보다 앞서면 "자료 없음"이 아니라 "기록 없음"임을 알린다
+  if (mode!=='pc' && SINCE) {
+    var rr = getRange(), sd = localDateStr(new Date(SINCE));
+    if (rr.f && rr.f < sd) sumHtml += '<div class="cnt" style="margin:0 0 12px">ⓘ 이 PC의 접근 기록은 '+sd.replace(/-/g,'.')+'부터 있습니다. 그 이전 날짜는 조회되지 않습니다.</div>';
+  }
+
   if (!files.length) {
     var st;
     if (ALL.length === 0 && mode!=='pc') {
@@ -570,6 +577,7 @@ function loadAll() {
       isLoading = false;
       fetchAbort = null;
       ALL = d.files || [];
+      SINCE = d.since || '';
       safeRender();
     })
     .catch(function(e){
@@ -595,6 +603,7 @@ function doRefresh() {
     .then(function(r){ return r.json(); })
     .then(function(d){
       ALL = d.files || [];
+      SINCE = d.since || '';
       if (btn) { btn.classList.remove('spinning'); btn.disabled = false; }
       safeRender();
       showToast('새로고침 완료: '+ALL.length+'개 파일');

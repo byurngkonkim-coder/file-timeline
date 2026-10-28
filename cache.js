@@ -93,7 +93,7 @@ function buildWithPowerShell() {
     '$OutputEncoding = [System.Text.Encoding]::UTF8',
     '$ErrorActionPreference = "SilentlyContinue"',
     '$sh = New-Object -ComObject WScript.Shell',
-    '$recent = [Environment]::GetFolderPath("Recent")',
+    '$recent = @([Environment]::GetFolderPath("Recent"), (Join-Path $env:APPDATA "Microsoft\\Office\\Recent"))',
     'Get-ChildItem $recent -Filter "*.lnk" | ForEach-Object {',
     '    try {',
     '        $target = $sh.CreateShortcut($_.FullName).TargetPath',
@@ -181,6 +181,70 @@ function buildWithLnkParser() {
   return results;
 }
 
+// ── 점프리스트 수집 ──────────────────────────────────────────────────
+function buildFromJumpLists() {
+  const { readJumpLists } = require('./jumplist');
+  const results = [];
+  const seen = new Set();
+  for (const e of readJumpLists(path.join(RECENT_DIR, 'AutomaticDestinations'))) {
+    const target = e.fullPath;
+    if (target.startsWith('\\\\')) continue;
+    if (target.includes('$Recycle.Bin')) continue;
+    const key = target.toLowerCase() + '|' + e.accessTime;
+    if (seen.has(key)) continue;          // 앱 여러 개의 점프리스트에 같은 항목이 중복됨
+    seen.add(key);
+    _minuteCount[minuteKey(e.accessTime)] = (_minuteCount[minuteKey(e.accessTime)] || 0) + 1;
+    const ext = path.extname(target).toLowerCase();
+    if (!TARGET_EXTS.has(ext)) continue;
+    results.push({
+      name:       path.basename(target),
+      ext,
+      label:      EXT_LABEL[ext] || ext.slice(1).toUpperCase(),
+      folder:     path.dirname(target),
+      fullPath:   target,
+      accessTime: e.accessTime,
+      size:       null,
+      source:     'jumplist',
+    });
+  }
+  return results;
+}
+
+// ── 누적 기록 (data\history.json) ─────────────────────────────────────
+// pkg 실행 시 __dirname 은 읽기 전용 스냅샷이므로 exe 옆에 저장한다
+const HISTORY_FILE = path.join(process.pkg ? path.dirname(process.execPath) : __dirname, 'data', 'history.json');
+
+function mergeHistory(fresh) {
+  let old = [];
+  try {
+    if (fs.existsSync(HISTORY_FILE)) {
+      try { old = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8')).files || []; }
+      catch(e) {
+        _diagError = (_diagError||'') + '|history:' + e.message;
+        try { fs.renameSync(HISTORY_FILE, HISTORY_FILE + '.bak'); } catch {}
+      }
+    }
+  } catch {}
+  // 기존 제외 규칙 변경분도 반영해 다시 걸러낸다(일괄접근 규칙은 신규 수집분에만 적용됨)
+  old = old.filter(function(r) { return r && r.fullPath && r.accessTime && !isExcluded(r.fullPath); });
+
+  const map = new Map();
+  for (const r of old.concat(fresh)) {
+    const k = r.fullPath.toLowerCase();
+    const cur = map.get(k);
+    if (!cur || r.accessTime > cur.accessTime) map.set(k, r);
+  }
+  const merged = Array.from(map.values()).sort(function(a, b) {
+    return a.accessTime < b.accessTime ? 1 : a.accessTime > b.accessTime ? -1 : 0;
+  });
+
+  try {
+    fs.mkdirSync(path.dirname(HISTORY_FILE), { recursive: true });
+    fs.writeFileSync(HISTORY_FILE, JSON.stringify({ files: merged }), 'utf8');
+  } catch(e) { _diagError = (_diagError||'') + '|history-save:' + e.message; }
+  return merged;
+}
+
 function build() {
   if (_building) return;
   _building = true;
@@ -205,6 +269,10 @@ function build() {
     }
   }
 
+  // 점프리스트: Recent 바로가기가 잘려 나간 더 오래된 접근 이력
+  try { results = results.concat(buildFromJumpLists()); }
+  catch(e) { _diagError = (_diagError||'') + '|jl:' + e.message; }
+
   // 자동 접근 제외: 제외 폴더 + 같은 분 일괄 생성
   const before = results.length;
   results = results.filter(function(r) {
@@ -216,14 +284,18 @@ function build() {
     return new Date(b.accessTime) - new Date(a.accessTime);
   });
 
-  // 중복 제거 (같은 fullPath)
+  // 중복 제거 (같은 fullPath) — 최신순 정렬 상태이므로 처음 만난 것이 마지막 접근
   const seen = new Set();
   results = results.filter(function(r) {
-    if (seen.has(r.fullPath)) return false;
-    seen.add(r.fullPath); return true;
+    const k = r.fullPath.toLowerCase();
+    if (seen.has(k)) return false;
+    seen.add(k); return true;
   });
 
-  _diagInfo = { method, count: results.length, dropped, recentDir: RECENT_DIR };
+  // 이전 실행에서 쌓은 기록과 병합 — Windows가 바로가기를 지워도 남는다
+  results = mergeHistory(results);
+
+  _diagInfo = { method, count: results.length, dropped, recentDir: RECENT_DIR, since: results.length ? results[results.length - 1].accessTime : null };
   _cache    = results;
   _building = false;
 }
@@ -247,6 +319,7 @@ function diag() {
     building:   _building,
     error:      _diagError,
     method:     _diagInfo.method,
+    since:      _diagInfo.since,
     recentDir:  RECENT_DIR,
     dirExists,
     lnkCount,

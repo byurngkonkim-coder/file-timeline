@@ -22,7 +22,8 @@ app.get('/', (_req, res) => {
 
 // ── 최근 파일 목록 (메모리 캐시 즉시 반환) ──────────────────────────────────────────────────────────────────
 app.get('/api/recent', (_req, res) => {
-  res.json({ files: cache.get() });
+  const files = cache.get();
+  res.json({ files, since: files.length ? files[files.length - 1].accessTime : null });
 });
 
 // ── 캐시 새로고침 (동기 빌드이므로 완료 즉시 응답) ────────────────────────────────────────────────────────────
